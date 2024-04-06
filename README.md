@@ -72,7 +72,6 @@ The API will be available at `http://localhost:3000`.
 
 ## Use SimP to Plot reports from BHEDI-CLI
 
-```markdown
 
 ## SimP Tool
 
