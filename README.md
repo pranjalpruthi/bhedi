@@ -67,6 +67,100 @@ The API will be available at `http://localhost:3000`.
 - Manage dependencies using Go modules (`go.mod` and `go.sum`) for reproducible builds.
 - The API component requires the Fiber web framework and its middleware for CORS and logging.
 
+
+
+
+## Use SimP to Plot reports from BHEDI-CLI
+
+```markdown
+
+## SimP Tool
+
+## Introduction
+SimP (Simple Plotter) is a visualization tool designed to plot data processed by the BHEDI CLI tool. It leverages Python libraries such as Pandas, Dask, HoloViews, and Plotly to generate insightful plots from Parquet files containing analysis results of Dengue virus serotypes in wastewater next-generation sequencing data. SimP supports various plot types including GC percentage box plots, serotype frequency heatmaps, and B score distributions.
+
+## Installation
+
+### Prerequisites
+- Python 3.6 or later
+- Conda or virtualenv (recommended for managing Python packages)
+
+### Dependencies
+SimP requires the following Python packages:
+- pandas
+- dask
+- holoviews
+- plotly
+- argparse
+- numpy
+
+You can install these dependencies using pip:
+
+```bash
+pip install pandas dask holoviews plotly argparse numpy
+```
+
+
+Or, if you prefer using Conda, you can create a new environment and install the required packages:
+
+```bash
+conda create -n simp_env python=3.8 pandas dask holoviews plotly numpy
+conda activate simp_env
+```
+
+
+### Installing SimP
+Currently, SimP is provided as a Python script (`sim.py`). Ensure you have the required dependencies installed in your environment before running the script.
+
+## Usage
+
+To use SimP for plotting, you need to specify the input directory containing the Parquet files processed by BHEDI CLI and the output directory where the plots will be saved.
+
+
+```bash
+python sim.py -i <input_dir> -o <output_dir>
+```
+
+
+Replace `<input_dir>` with the directory containing your Parquet files and `<output_dir>` with the directory where you want the plots to be saved.
+
+### Example
+Assuming you have Parquet files in `/path/to/parquet_files` and you want to save the plots in `/path/to/plots`, run:
+
+
+```bash
+python sim.py -i /path/to/parquet_files -o /path/to/plots
+```
+
+
+This will generate various plots such as GC percentage box plots, serotype frequency heatmaps, and B score distributions, and save them as HTML files in the specified output directory.
+
+## Running on High-Performance Computing Clusters
+SimP can also be run on HPC clusters using SLURM. Here's an example SLURM script:
+
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=SimPPlotting
+#SBATCH --output=./log/SimP%j.out
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=4
+#SBATCH --mem=16GB
+#SBATCH --partition=short
+
+# Activate your Conda environment or Python virtual environment
+conda activate simp_env
+
+# Run SimP
+time python sim.py -i /path/to/parquet_files -o /path/to/plots
+```
+]
+
+Adjust the SLURM parameters according to your cluster's configuration and your job's requirements.
+
+
+
+
 ## Contributing
 Contributions to the BHEDI project are welcome. Please refer to the CONTRIBUTING.md file for guidelines on how to contribute.
 
