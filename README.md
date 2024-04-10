@@ -2,6 +2,8 @@
 ## Introduction
 βHΞDI (Biomarker-based Heuristic Engine for Dengue Identification) is a computational tool designed for the identification of Dengue virus serotypes in wastewater next-generation sequencing data. It leverages specific genomic fragments, referred to as sankets, to detect sequences associated with the Dengue virus. This repository contains the command-line interface (CLI) and API for processing FASTQ files and identifying Dengue virus serotypes.
 
+![FASTA-41](https://github.com/pranjalpruthi/bhedi/assets/47497714/3deaf869-9ca3-4f9c-b316-cd132161045f)
+
 ## Installation
 
 ### Prerequisites
@@ -51,6 +53,9 @@ go run api/main.go
 ```
 
 The API will be available at `http://localhost:3000`.
+
+![FASTA-43](https://github.com/pranjalpruthi/bhedi/assets/47497714/dbf2387a-0305-4113-845c-02055a6352d8)
+
 
 ## Dependencies
 
