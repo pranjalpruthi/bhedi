@@ -1,13 +1,13 @@
-# BHEDI PIPELINE
+# βHΞDI PIPELINE
 ## Introduction
-BHEDI (Biomarker-based Heuristic Engine for Dengue Identification) is a computational tool designed for the identification of Dengue virus serotypes in wastewater next-generation sequencing data. It leverages specific genomic fragments, referred to as sankets, to detect sequences associated with the Dengue virus. This repository contains the command-line interface (CLI) and API for processing FASTQ files and identifying Dengue virus serotypes.
+βHΞDI (Biomarker-based Heuristic Engine for Dengue Identification) is a computational tool designed for the identification of Dengue virus serotypes in wastewater next-generation sequencing data. It leverages specific genomic fragments, referred to as sankets, to detect sequences associated with the Dengue virus. This repository contains the command-line interface (CLI) and API for processing FASTQ files and identifying Dengue virus serotypes.
 
 ## Installation
 
 ### Prerequisites
 - Go (1.15 or later)
 - SeqKit
-
+  
 ### Installing SeqKit
 SeqKit must be installed as a prerequisite. You can install SeqKit by following the instructions on its GitHub repository: [SeqKit GitHub](https://github.com/shenwei356/seqkit).
 
@@ -15,13 +15,13 @@ SeqKit must be installed as a prerequisite. You can install SeqKit by following 
 1. Clone the repository:
    
 ```bash
-   git clone https://github.com/pranjalpruthi/BHEDI.git
+   git clone https://github.com/pranjalpruthi/bhedi.git
    ```
 
 2. Navigate to the cloned directory:
    
 ```bash
-   cd BHEDI
+   cd bhedi
    ```
 
 3. Build the CLI tool:
@@ -70,18 +70,18 @@ The API will be available at `http://localhost:3000`.
 
 
 
-## Use SimP to Plot reports from BHEDI-CLI
+## Use SimP to Plot reports from βHΞDI-CLI
 
 
 ## SimP Tool
 
 ## Introduction
-SimP (Simple Plotter) is a visualization tool designed to plot data processed by the BHEDI CLI tool. It leverages Python libraries such as Pandas, Dask, HoloViews, and Plotly to generate insightful plots from Parquet files containing analysis results of Dengue virus serotypes in wastewater next-generation sequencing data. SimP supports various plot types including GC percentage box plots, serotype frequency heatmaps, and B score distributions.
+SimP (Simple Plotter) is a visualization tool designed to plot data processed by the βHΞDI CLI tool. It leverages Python libraries such as Pandas, Dask, HoloViews, and Plotly to generate insightful plots from Parquet files containing analysis results of Dengue virus serotypes in wastewater next-generation sequencing data. SimP supports various plot types including GC percentage box plots, serotype frequency heatmaps, and B score distributions.
 
 ## Installation
 
 ### Prerequisites
-- Python 3.6 or later
+- Python 3.10 or later
 - Conda or virtualenv (recommended for managing Python packages)
 
 ### Dependencies
@@ -100,20 +100,25 @@ pip install pandas dask holoviews plotly argparse numpy
 ```
 
 
-Or, if you prefer using Conda, you can create a new environment and install the required packages:
+Or, if you prefer using Conda or Mamba, you can create a new environment and install the required packages:
 
 ```bash
-conda create -n simp_env python=3.8 pandas dask holoviews plotly numpy
+conda create -n simp_env python=3.10 pandas dask holoviews plotly numpy
 conda activate simp_env
 ```
 
+
+```bash
+mamba create -n simp_env python=3.10 pandas dask holoviews plotly numpy
+mamba activate simp_env
+```
 
 ### Installing SimP
 Currently, SimP is provided as a Python script (`sim.py`). Ensure you have the required dependencies installed in your environment before running the script.
 
 ## Usage
 
-To use SimP for plotting, you need to specify the input directory containing the Parquet files processed by BHEDI CLI and the output directory where the plots will be saved.
+To use SimP for plotting, you need to specify the input directory containing the Parquet files processed by βHΞDI CLI and the output directory where the plots will be saved.
 
 
 ```bash
@@ -140,7 +145,7 @@ SimP can also be run on HPC clusters using SLURM. Here's an example SLURM script
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=SimPPlotting
+#SBATCH --job-name=SimP
 #SBATCH --output=./log/SimP%j.out
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
@@ -161,9 +166,9 @@ Adjust the SLURM parameters according to your cluster's configuration and your j
 
 
 ## Contributing
-Contributions to the BHEDI project are welcome. Please refer to the CONTRIBUTING.md file for guidelines on how to contribute.
+Contributions to the βHΞDI project are welcome. Please refer to the CONTRIBUTING.md file for guidelines on how to contribute.
 
 ## License
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the AGPLv3 License - see the LICENSE file for details.
 
 ```
