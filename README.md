@@ -1,4 +1,4 @@
-# βHΞDI PIPELINE
+# βHΞDI 
 ## Introduction
 βHΞDI (Biomarker-based Heuristic Engine for Dengue Identification) is a computational tool designed for the identification of Dengue virus serotypes in wastewater next-generation sequencing data. It leverages specific genomic fragments, referred to as sankets, to detect sequences associated with the Dengue virus. This repository contains the command-line interface (CLI) and API for processing FASTQ files and identifying Dengue virus serotypes.
 
