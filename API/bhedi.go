@@ -27,6 +27,7 @@ var coverageMapMutex sync.Mutex
 var parquetWriterMutex sync.Mutex // Mutex for the Parquet writer
 
 type SanketInfo struct {
+	SID      string // Add this line
 	Serotype string
 	Sanket   string
 	SLen     int
@@ -38,6 +39,7 @@ type SanketInfo struct {
 }
 
 type MatchInfo struct {
+	SID      string // Add this line
 	Sanket   string
 	Serotype string
 	SLen     int
@@ -58,6 +60,7 @@ type ProcessRecordResult struct {
 	BScore        float64 `parquet:"name=b_score, type=DOUBLE"`
 }
 type ParquetRecord struct {
+	SID           string  `parquet:"name=sid, type=BYTE_ARRAY, convertedtype=UTF8"`
 	ReadID        string  `parquet:"name=read_id, type=BYTE_ARRAY, convertedtype=UTF8"`
 	MatchedSanket string  `parquet:"name=matched_sanket, type=BYTE_ARRAY, convertedtype=UTF8"`
 	Serotype      string  `parquet:"name=serotype, type=BYTE_ARRAY, convertedtype=UTF8"`
@@ -159,6 +162,7 @@ func processRecord(seq string, id string, sankets map[string]SanketInfo, avgRead
 		if strings.Contains(seq, info.Sanket) {
 			matchesFound = true
 			match := MatchInfo{
+				SID:      info.SID, // Add this line
 				Sanket:   info.Sanket,
 				Serotype: info.Serotype,
 				SLen:     info.SLen,
@@ -218,6 +222,7 @@ func LoadSankets(csvFilePath string) (map[string]SanketInfo, error) {
 		pCount := record[7]
 		plenAvg := record[8]
 		sankets[sid] = SanketInfo{
+			SID:      sid, // Ensure this line is correct
 			Serotype: serotype,
 			Sanket:   sanket,
 			SLen:     sLen,
@@ -283,6 +288,7 @@ func processFastqStream(fastqReader io.Reader, sankets map[string]SanketInfo, pa
 				// Write each match as a separate record in the Parquet file
 				for _, match := range result.Matches {
 					parquetRecord := ParquetRecord{
+						SID:           match.SID,
 						ReadID:        result.ReadID,
 						MatchedSanket: match.Sanket,
 						Serotype:      match.Serotype,

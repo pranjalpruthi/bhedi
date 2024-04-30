@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -16,13 +17,16 @@ import (
 
 	"github.com/cheggaaa/pb/v3"
 	"github.com/shenwei356/bio/seqio/fastx"
-	"github.com/shenwei356/xopen"
 	"github.com/xitongsys/parquet-go-source/local"
-	"github.com/xitongsys/parquet-go/parquet"
 	"github.com/xitongsys/parquet-go/writer"
 )
 
+// Define your structs here (SanketInfo, MatchInfo, ProcessRecordResult, ParquetRecord)
+var coverageMapMutex sync.Mutex
+var parquetWriterMutex sync.Mutex // Mutex for the Parquet writer
+
 type SanketInfo struct {
+	SID      string // Add this line
 	Serotype string
 	Sanket   string
 	SLen     int
@@ -34,6 +38,7 @@ type SanketInfo struct {
 }
 
 type MatchInfo struct {
+	SID      string // Add this line
 	Sanket   string
 	Serotype string
 	SLen     int
@@ -43,7 +48,6 @@ type MatchInfo struct {
 	PCount   string
 	PLenAvg  string
 	BScore   float64 // Add this line
-
 }
 
 type ProcessRecordResult struct {
@@ -54,14 +58,14 @@ type ProcessRecordResult struct {
 	MatchesFound  bool
 	BScore        float64 `parquet:"name=b_score, type=DOUBLE"`
 }
-
 type ParquetRecord struct {
+	SID           string  `parquet:"name=sid, type=BYTE_ARRAY, convertedtype=UTF8"`
 	ReadID        string  `parquet:"name=read_id, type=BYTE_ARRAY, convertedtype=UTF8"`
 	MatchedSanket string  `parquet:"name=matched_sanket, type=BYTE_ARRAY, convertedtype=UTF8"`
 	Serotype      string  `parquet:"name=serotype, type=BYTE_ARRAY, convertedtype=UTF8"`
 	GCPercentage  float64 `parquet:"name=gc_percentage, type=DOUBLE"`
-	TotalCoverage int     `parquet:"name=total_coverage, type=INT32"`
-	SLen          int     `parquet:"name=s_len, type=INT32"`
+	TotalCoverage int32   `parquet:"name=total_coverage, type=INT32"` // Changed to int32
+	SLen          int32   `parquet:"name=s_len, type=INT32"`          // Changed to int32
 	SSRCount      string  `parquet:"name=ssr_count, type=BYTE_ARRAY, convertedtype=UTF8"`
 	MLenAvg       string  `parquet:"name=mlen_avg, type=BYTE_ARRAY, convertedtype=UTF8"`
 	MRCAvg        string  `parquet:"name=mrc_avg, type=BYTE_ARRAY, convertedtype=UTF8"`
@@ -74,8 +78,7 @@ func calculateGCPercentage(seq string) float64 {
 	gcCount := strings.Count(seq, "G") + strings.Count(seq, "C")
 	return (float64(gcCount) / float64(len(seq))) * 100
 }
-
-func calculateBScore(totalCoverage, sLen int, ssrCount, pCount string) float64 {
+func calculateBScore(totalCoverage, sLen int, ssrCount, pCount string, avgReadLength float64, totalRecords int) float64 {
 	// Convert string parameters to integers
 	ssrCountInt, err1 := strconv.Atoi(ssrCount)
 	if err1 != nil {
@@ -91,22 +94,26 @@ func calculateBScore(totalCoverage, sLen int, ssrCount, pCount string) float64 {
 
 	// Check for presence of both ssrCount and pCount and adjust base score
 	if ssrCountInt > 0 && pCountInt > 0 {
-		baseScore += 0.3 // Assign a higher base score if both are present
+		baseScore += 0.35 // Assign a higher base score if both are present
 	} else if ssrCountInt > 0 || pCountInt > 0 {
-		baseScore += 0.15 // Assign a lower base score if only one is present
+		baseScore += 0.2 // Assign a lower base score if only one is present
 	}
 
-	// Normalize and weight totalCoverage and sLen
-	// Assuming maximum expected values for normalization
-	maxTotalCoverage := 1000.0 // Adjust based on expected range
-	maxSLen := 100.0           // Adjust based on expected range
+	// Calculate maxTotalCoverage using the Lander/Waterman equation C = LN / G
+	genomeSize := 11000.0 // Dengue virus genome size in base pairs
+	maxTotalCoverage := (avgReadLength * float64(totalRecords)) / genomeSize
 
-	normalizedTotalCoverage := math.Min(float64(totalCoverage)/maxTotalCoverage, 1)
+	// Normalize and weight totalCoverage and sLen
+	// Adjust normalization based on the actual range of totalCoverage values
+	maxExpectedCoverage := maxTotalCoverage // You might want to adjust this based on your dataset
+	normalizedTotalCoverage := math.Min(float64(totalCoverage)/maxExpectedCoverage, 1)
+
+	maxSLen := 25.0 // Adjust based on expected range
 	normalizedSLen := math.Min(float64(sLen)/maxSLen, 1)
 
 	// Weighted contributions (adjust weights as needed)
-	totalCoverageWeight := 0.3 // Higher weight for totalCoverage
-	sLenWeight := 0.4          // Weight for sLen
+	totalCoverageWeight := 0.37 // Higher weight for totalCoverage
+	sLenWeight := 0.4           // Weight for sLen
 
 	// Calculate weighted contributions
 	weightedTotalCoverage := normalizedTotalCoverage * totalCoverageWeight
@@ -121,7 +128,31 @@ func calculateBScore(totalCoverage, sLen int, ssrCount, pCount string) float64 {
 	return bScore
 }
 
-func processRecord(seq string, id string, sankets map[string]SanketInfo) ProcessRecordResult {
+func getTotalRecordsAndAvgReadLength(fastqPath string) (totalRecords int, avgReadLength float64, err error) {
+	cmd := exec.Command("seqkit", "stats", fastqPath, "--tabular")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, 0, err
+	}
+	lines := strings.Split(string(output), "\n")
+	if len(lines) > 2 {
+		fields := strings.Fields(lines[1])
+		if len(fields) > 5 {
+			totalRecords, err = strconv.Atoi(fields[3])
+			if err != nil {
+				return 0, 0, fmt.Errorf("failed to parse total records: %w", err)
+			}
+			avgReadLength, err = strconv.ParseFloat(fields[5], 64)
+			if err != nil {
+				return 0, 0, fmt.Errorf("failed to parse average read length: %w", err)
+			}
+			return totalRecords, avgReadLength, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("failed to parse seqkit stats output")
+}
+
+func processRecord(seq string, id string, sankets map[string]SanketInfo, avgReadLength float64, totalRecords int) ProcessRecordResult {
 	gcPercentage := calculateGCPercentage(seq)
 	var matches []MatchInfo
 	coverageMap := make(map[string]int)
@@ -130,6 +161,7 @@ func processRecord(seq string, id string, sankets map[string]SanketInfo) Process
 		if strings.Contains(seq, info.Sanket) {
 			matchesFound = true
 			match := MatchInfo{
+				SID:      info.SID, // Add this line
 				Sanket:   info.Sanket,
 				Serotype: info.Serotype,
 				SLen:     info.SLen,
@@ -148,8 +180,8 @@ func processRecord(seq string, id string, sankets map[string]SanketInfo) Process
 		totalCoverage += count
 	}
 	for i, match := range matches {
-		matches[i].BScore = calculateBScore(totalCoverage, match.SLen, match.SSRCount, match.PCount)
-
+		// Pass the missing avgReadLength and totalRecords arguments
+		matches[i].BScore = calculateBScore(totalCoverage, match.SLen, match.SSRCount, match.PCount, avgReadLength, totalRecords)
 	}
 	return ProcessRecordResult{
 		ReadID:        id,
@@ -159,148 +191,16 @@ func processRecord(seq string, id string, sankets map[string]SanketInfo) Process
 		MatchesFound:  matchesFound,
 	}
 }
-func getTotalRecords(fastqPath string) (int, error) {
-	cmd := exec.Command("seqkit", "stats", fastqPath, "--tabular")
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, err
-	}
-	lines := strings.Split(string(output), "\n")
-	if len(lines) > 2 {
-		fields := strings.Fields(lines[1])
-		if len(fields) > 3 {
-			return strconv.Atoi(fields[3])
-		}
-	}
-	return 0, fmt.Errorf("failed to parse seqkit stats output")
-}
 
-func processFastqFile(fastqPath string, sankets map[string]SanketInfo, outputDir string) {
-	totalRecords, err := getTotalRecords(fastqPath)
-	if err != nil {
-		fmt.Printf("Error getting total records for %s: %v\n", fastqPath, err)
-		return
-	}
-	fastqFile, err := xopen.Ropen(fastqPath)
-	if err != nil {
-		fmt.Printf("Error opening FASTQ file %s: %v\n", fastqPath, err)
-		return
-	}
-	defer fastqFile.Close()
-	reader, err := fastx.NewDefaultReader(fastqPath)
-	if err != nil {
-		fmt.Printf("Error initializing FASTX reader for %s: %v\n", fastqPath, err)
-		return
-	}
-	var wg sync.WaitGroup
-	results := make(chan ProcessRecordResult, totalRecords)
-	bar := pb.StartNew(totalRecords)
-	for {
-		record, err := reader.Read()
-		if err != nil {
-			if err == io.EOF {
-				break
-			} else {
-				fmt.Printf("Error reading FASTQ record from %s: %v\n", fastqPath, err)
-				return
-			}
-		}
-		seqCopy := string(record.Seq.Seq)
-		idCopy := string(record.ID)
-		wg.Add(1)
-		go func(seq string, id string) {
-			defer wg.Done()
-			result := processRecord(seq, id, sankets)
-			results <- result
-			bar.Increment()
-		}(seqCopy, idCopy)
-	}
-	go func() {
-		wg.Wait()
-		close(results)
-		bar.Finish()
-	}()
-	outputFilePath := filepath.Join(outputDir, filepath.Base(fastqPath)+".parquet")
-	fw, err := local.NewLocalFileWriter(outputFilePath)
-	if err != nil {
-		fmt.Println("Can't create local file", err)
-		return
-	}
-	pw, err := writer.NewParquetWriter(fw, new(ParquetRecord), 4)
-	if err != nil {
-		fmt.Println("Can't create parquet writer", err)
-		return
-	}
-	pw.RowGroupSize = 1024 * 1024 * 1024
-	pw.CompressionType = parquet.CompressionCodec_SNAPPY
-
-	for result := range results {
-		if result.MatchesFound {
-			for _, match := range result.Matches {
-				if err = pw.Write(ParquetRecord{
-					ReadID:        result.ReadID,
-					MatchedSanket: match.Sanket,
-					Serotype:      match.Serotype,
-					GCPercentage:  result.GCPercentage,
-					TotalCoverage: result.TotalCoverage,
-					SLen:          match.SLen,
-					SSRCount:      match.SSRCount,
-					MLenAvg:       match.MLenAvg,
-					MRCAvg:        match.MRCAvg,
-					PCount:        match.PCount,
-					PLenAvg:       match.PLenAvg,
-					BScore:        match.BScore, // Use match.BScore instead of result.BScore
-				}); err != nil {
-					fmt.Println("Write error", err)
-				}
-			}
-		} else {
-			if err = pw.Write(ParquetRecord{
-				ReadID:        result.ReadID,
-				MatchedSanket: "No Match Found",
-				Serotype:      "N/A",
-				GCPercentage:  result.GCPercentage,
-				TotalCoverage: 0,
-				SLen:          0,
-				SSRCount:      "",
-				MLenAvg:       "",
-				MRCAvg:        "",
-				PCount:        "",
-				PLenAvg:       "",
-				BScore:        0, // Use 0 as BScore for no match found
-			}); err != nil {
-				fmt.Println("Write error", err)
-			}
-		}
-	}
-	if err = pw.WriteStop(); err != nil {
-		fmt.Println("WriteStop error", err)
-	}
-	fw.Close()
-	fmt.Printf("Analysis complete for %s. Results saved to %s.\n", fastqPath, outputFilePath)
-}
-
-func main() {
-	var inputDir, outputDir string
-	flag.StringVar(&inputDir, "i", "", "Input directory containing FASTQ files")
-	flag.StringVar(&outputDir, "o", "", "Output directory for result files")
-	flag.Parse()
-	if inputDir == "" || outputDir == "" {
-		fmt.Println("Input and output directories must be specified.")
-		return
-	}
-	dirEntries, err := os.ReadDir(inputDir)
-	if err != nil {
-		fmt.Printf("Error reading directory %s: %v\n", inputDir, err)
-		return
-	}
+// LoadSankets loads sanket information from a CSV file
+func LoadSankets(csvFilePath string) (map[string]SanketInfo, error) {
 	sankets := make(map[string]SanketInfo)
-	csvFile, err := os.Open("sanket.csv")
+	csvFile, err := os.Open(csvFilePath)
 	if err != nil {
-		fmt.Printf("Error opening CSV file: %v\n", err)
-		return
+		return nil, fmt.Errorf("error opening CSV file: %w", err)
 	}
 	defer csvFile.Close()
+
 	r := csv.NewReader(bufio.NewReader(csvFile))
 	r.Read() // Skip header
 	for {
@@ -309,8 +209,7 @@ func main() {
 			if err == io.EOF {
 				break
 			}
-			fmt.Printf("Error reading CSV record: %v\n", err)
-			return
+			return nil, fmt.Errorf("error reading CSV record: %w", err)
 		}
 		sid := record[0]
 		sanket := record[1]
@@ -322,6 +221,7 @@ func main() {
 		pCount := record[7]
 		plenAvg := record[8]
 		sankets[sid] = SanketInfo{
+			SID:      sid, // Ensure this line is correct
 			Serotype: serotype,
 			Sanket:   sanket,
 			SLen:     sLen,
@@ -332,12 +232,173 @@ func main() {
 			PLenAvg:  plenAvg,
 		}
 	}
+	return sankets, nil
+}
+
+func processFastqFile(fastqPath string, sankets map[string]SanketInfo, outputDir string, totalRecords int, avgReadLength float64) error {
+	// Open the FASTQ file
+	fastqFile, err := os.Open(fastqPath)
+	if err != nil {
+		return fmt.Errorf("error opening FASTQ file: %w", err)
+	}
+	defer fastqFile.Close()
+
+	// Generate the output Parquet file path
+	outputFileName := filepath.Base(fastqPath)
+	outputFileName = strings.TrimSuffix(outputFileName, filepath.Ext(outputFileName)) + ".parquet"
+	parquetFilePath := filepath.Join(outputDir, outputFileName)
+
+	// Setup Parquet writer
+	fw, err := local.NewLocalFileWriter(parquetFilePath)
+	if err != nil {
+		return fmt.Errorf("can't create local file: %w", err)
+	}
+	defer fw.Close()
+
+	pw, err := writer.NewParquetWriter(fw, new(ParquetRecord), 4)
+	if err != nil {
+		return fmt.Errorf("can't create parquet writer: %w", err)
+	}
+	defer pw.WriteStop()
+
+	// Initialize the FASTX reader
+	reader, err := fastx.NewReaderFromIO(nil, fastqFile, "")
+	if err != nil {
+		return fmt.Errorf("error initializing FASTX reader: %w", err)
+	}
+
+	// Initialize progress bar
+	bar := pb.StartNew(totalRecords)
+	defer bar.Finish()
+
+	// Setup concurrency control
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, 40) // Limit the number of concurrent goroutines
+
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("error reading FASTQ record: %w", err)
+		}
+
+		// Make deep copies of the data needed by the goroutine
+		seqCopy := string(record.Seq.Seq) // This is already a copy, but included for clarity
+		idCopy := string(record.ID)
+
+		wg.Add(1)
+		semaphore <- struct{}{} // Acquire a token
+
+		go func(seqCopy string, idCopy string) {
+			defer wg.Done()
+			result := processRecord(seqCopy, idCopy, sankets, avgReadLength, totalRecords)
+
+			if result.MatchesFound {
+				// Write each match as a separate record in the Parquet file
+				for _, match := range result.Matches {
+					parquetRecord := ParquetRecord{
+
+						SID:           match.SID,
+						ReadID:        result.ReadID,
+						MatchedSanket: match.Sanket,
+						Serotype:      match.Serotype,
+						GCPercentage:  result.GCPercentage,
+						TotalCoverage: int32(result.TotalCoverage),
+						SLen:          int32(match.SLen),
+						SSRCount:      match.SSRCount,
+						MLenAvg:       match.MLenAvg,
+						MRCAvg:        match.MRCAvg,
+						PCount:        match.PCount,
+						PLenAvg:       match.PLenAvg,
+						BScore:        match.BScore,
+					}
+					parquetWriterMutex.Lock()
+					if err := pw.Write(parquetRecord); err != nil {
+						log.Printf("error writing to Parquet file: %v", err)
+					}
+					parquetWriterMutex.Unlock()
+				}
+			} else {
+				// Write a record indicating no match was found
+				parquetWriterMutex.Lock()
+				if err := pw.Write(ParquetRecord{
+					ReadID:        result.ReadID,
+					MatchedSanket: "No Match Found",
+					Serotype:      "Unassigned",
+					GCPercentage:  result.GCPercentage,
+					TotalCoverage: 0,
+					SLen:          0,
+					SSRCount:      "",
+					MLenAvg:       "",
+					MRCAvg:        "",
+					PCount:        "",
+					PLenAvg:       "",
+					BScore:        0, // Use 0 as BScore for no match found
+				}); err != nil {
+					log.Printf("error writing to Parquet file: %v", err)
+				}
+				parquetWriterMutex.Unlock()
+			}
+
+			bar.Increment() // Update progress bar
+			<-semaphore     // Release the token
+		}(seqCopy, idCopy) // Pass the copies to the goroutine
+	}
+
+	wg.Wait() // Wait for all goroutines to finish
+	bar.Finish()
+
+	// Lock the mutex before stopping the Parquet writer
+	parquetWriterMutex.Lock()
+	if err := pw.WriteStop(); err != nil {
+		return fmt.Errorf("error finalizing Parquet file write: %w", err)
+	}
+	parquetWriterMutex.Unlock() // Unlock the mutex after stopping the writer
+
+	return nil
+}
+
+func main() {
+	var inputDir, outputDir string
+	flag.StringVar(&inputDir, "i", "", "Input directory containing FASTQ files")
+	flag.StringVar(&outputDir, "o", "", "Output directory for result files")
+	flag.Parse()
+
+	if inputDir == "" || outputDir == "" {
+		fmt.Println("Input and output directories must be specified.")
+		return
+	}
+
+	// Load sankets from CSV
+	sankets, err := LoadSankets("sanket.csv") // Specify the path to your CSV file
+	if err != nil {
+		fmt.Printf("Failed to load sankets: %v\n", err)
+		return
+	}
+
+	dirEntries, err := os.ReadDir(inputDir)
+	if err != nil {
+		fmt.Printf("Error reading directory %s: %v\n", inputDir, err)
+		return
+	}
+
 	for _, entry := range dirEntries {
 		if !entry.IsDir() {
 			fileName := entry.Name()
 			if strings.HasSuffix(fileName, ".fastq") {
 				fastqPath := filepath.Join(inputDir, fileName)
-				processFastqFile(fastqPath, sankets, outputDir)
+				// Get total records and average read length for progress bar and BScore calculation
+				totalRecords, avgReadLength, err := getTotalRecordsAndAvgReadLength(fastqPath)
+				if err != nil {
+					fmt.Printf("Failed to get total records and average read length for %s: %v\n", fastqPath, err)
+					continue
+				}
+				// Process the FASTQ file
+				if err := processFastqFile(fastqPath, sankets, outputDir, totalRecords, avgReadLength); err != nil {
+					fmt.Printf("Failed to process FASTQ file %s: %v\n", fastqPath, err)
+				}
 			}
 		}
 	}

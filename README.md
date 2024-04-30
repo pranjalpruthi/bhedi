@@ -165,6 +165,6 @@ Adjust the SLURM parameters according to your cluster's configuration and your j
 Contributions to the BHEDI project are welcome. Please refer to the CONTRIBUTING.md file for guidelines on how to contribute.
 
 ## License
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the AGPLv3 License - see the LICENSE file for details.
 
 ```
